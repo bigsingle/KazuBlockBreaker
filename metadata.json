@@ -1,0 +1,6 @@
+{
+  "name": "ブロック崩し",
+  "description": "5×4のブロックを崩すクラシックなブロック崩しゲーム。棒を操作して玉を跳ね返し、全ブロックを破壊しよう。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
