@@ -12,27 +12,119 @@ import {
   Volume2, 
   VolumeX, 
   HelpCircle, 
-  Sparkles,
-  ArrowLeft,
-  ArrowRight,
-  Flame
+  Sparkles, 
+  ArrowLeft, 
+  ArrowRight, 
+  Flame,
+  FastForward,
+  ChevronRight,
+  ShieldAlert
 } from 'lucide-react';
 import { sound } from './utils/audio';
 
-// Constants
+// Canvas constants
 const CANVAS_WIDTH = 800;
 const CANVAS_HEIGHT = 600;
 const COLS = 5;
 const ROWS = 4;
 const TOTAL_BLOCKS = COLS * ROWS; // 20 blocks
-const BALL_SPEED = 7.5;
 const BALL_RADIUS = 9;
-const PADDLE_WIDTH = 132;
+const BASE_PADDLE_WIDTH = 132;
 const PADDLE_HEIGHT = 18;
 const PADDLE_SPEED = 9;
 const PADDLE_Y = CANVAS_HEIGHT - 70;
 const MAX_RETRIES = 2; // 玉の発射し直しは２回
-const BASE_BLOCK_SCORE = 100; // ブロックの基本得点
+const BASE_BLOCK_SCORE = 100;
+const TOTAL_STAGES = 4;
+
+interface StageConfig {
+  stage: number;
+  name: string;
+  isFinal: boolean;
+  paddleWidth: number;
+  ballSpeed: number;
+  themeName: string;
+  badge: string;
+  description: string;
+  modifierText: string;
+  colors: { fill: string; border: string; name: string }[];
+}
+
+// Stage configurations based on requirements:
+// 1面: 通常パドル (132px), 通常速度 (7.5)
+// 2面: パドル幅が3分の2 (88px), 通常速度 (7.5)
+// 3面: パドル幅 2/3 (88px), 球の速度が1.5倍 (11.25)
+// 4面: 最終面！パドル幅が半分 (66px), 球の速度 1.5倍 (11.25)
+const STAGES: StageConfig[] = [
+  {
+    stage: 1,
+    name: '1面',
+    isFinal: false,
+    paddleWidth: 132,
+    ballSpeed: 7.5,
+    themeName: 'クラシック',
+    badge: '1面：標準',
+    description: '基本ステージ（通常パドル・通常速度）',
+    modifierText: '通常パドル（幅132px）/ 通常速度',
+    colors: [
+      { fill: '#f43f5e', border: '#fda4af', name: 'ローズ' },
+      { fill: '#f97316', border: '#fdba74', name: 'オレンジ' },
+      { fill: '#10b981', border: '#6ee7b7', name: 'グリーン' },
+      { fill: '#06b6d4', border: '#67e8f9', name: 'シアン' },
+    ],
+  },
+  {
+    stage: 2,
+    name: '2面',
+    isFinal: false,
+    paddleWidth: 88, // 132 * 2/3 = 88
+    ballSpeed: 7.5,
+    themeName: 'サイバーネオン',
+    badge: '2面：パドル2/3',
+    description: 'パドルの幅が3分の2に縮小！',
+    modifierText: 'パドル幅が3分の2（88px）に縮小！',
+    colors: [
+      { fill: '#ec4899', border: '#fbcfe8', name: 'ピンク' },
+      { fill: '#a855f7', border: '#e9d5ff', name: 'パープル' },
+      { fill: '#3b82f6', border: '#bfdbfe', name: 'ブルー' },
+      { fill: '#14b8a6', border: '#99f6e4', name: 'ティール' },
+    ],
+  },
+  {
+    stage: 3,
+    name: '3面',
+    isFinal: false,
+    paddleWidth: 88,
+    ballSpeed: 11.25, // 7.5 * 1.5 = 11.25
+    themeName: 'ソーラーフレア',
+    badge: '3面：球速1.5倍',
+    description: '球の速度が1.5倍にスピードアップ！',
+    modifierText: '球の速度が1.5倍に超加速！',
+    colors: [
+      { fill: '#ef4444', border: '#fecaca', name: 'クリムゾン' },
+      { fill: '#f97316', border: '#fed7aa', name: 'フレイム' },
+      { fill: '#eab308', border: '#fef08a', name: 'ゴールド' },
+      { fill: '#84cc16', border: '#d9f99d', name: 'ライム' },
+    ],
+  },
+  {
+    stage: 4,
+    name: '4面（最終面）',
+    isFinal: true,
+    paddleWidth: 66, // 132 * 0.5 = 66
+    ballSpeed: 11.25,
+    themeName: 'クァンタムコア',
+    badge: '4面：最終面',
+    description: '最終決戦！パドルが半分 ＆ 球速1.5倍！',
+    modifierText: 'パドル幅が半分（66px）＆ 球速1.5倍！',
+    colors: [
+      { fill: '#8b5cf6', border: '#ddd6fe', name: 'バイオレット' },
+      { fill: '#6366f1', border: '#c7d2fe', name: 'インディゴ' },
+      { fill: '#06b6d4', border: '#a5f3fc', name: 'エレクトリック' },
+      { fill: '#10b981', border: '#a7f3d0', name: 'エメラルド' },
+    ],
+  },
+];
 
 interface Block {
   id: number;
@@ -68,13 +160,6 @@ interface FloatingScore {
   vy: number;
 }
 
-const ROW_COLORS = [
-  { fill: '#f43f5e', border: '#fda4af', name: 'ローズ' },    // Row 0: Red / Rose
-  { fill: '#f97316', border: '#fdba74', name: 'オレンジ' },  // Row 1: Orange
-  { fill: '#10b981', border: '#6ee7b7', name: 'グリーン' },  // Row 2: Emerald Green
-  { fill: '#06b6d4', border: '#67e8f9', name: 'シアン' },    // Row 3: Electric Cyan
-];
-
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -82,13 +167,15 @@ export default function App() {
   // 'ready': ball resting on paddle, waiting to start
   // 'playing': ball in motion
   // 'paused': game paused
-  // 'cleared': all 20 blocks broken
+  // 'stage_cleared': cleared stage 1, 2, or 3 (waiting to advance to next stage)
+  // 'all_cleared': cleared stage 4 (final victory)
   // 'gameover': ball dropped during 2nd retry
-  const [gameState, setGameState] = useState<'ready' | 'playing' | 'paused' | 'cleared' | 'gameover'>('ready');
+  const [gameState, setGameState] = useState<'ready' | 'playing' | 'paused' | 'stage_cleared' | 'all_cleared' | 'gameover'>('ready');
+  const [stage, setStage] = useState<number>(1);
   const [retriesLeft, setRetriesLeft] = useState<number>(MAX_RETRIES); // 2, 1, 0
   const [destroyedCount, setDestroyedCount] = useState<number>(0);
   
-  // Scoring system states
+  // Score state
   const [score, setScore] = useState<number>(0);
   const [highScore, setHighScore] = useState<number>(() => {
     try {
@@ -103,11 +190,13 @@ export default function App() {
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [showHelp, setShowHelp] = useState<boolean>(false);
 
+  const currentStageConfig = STAGES[stage - 1] || STAGES[0];
+
   // Mutable game simulation refs
   const paddleRef = useRef({
-    x: (CANVAS_WIDTH - PADDLE_WIDTH) / 2,
+    x: (CANVAS_WIDTH - currentStageConfig.paddleWidth) / 2,
     y: PADDLE_Y,
-    width: PADDLE_WIDTH,
+    width: currentStageConfig.paddleWidth,
     height: PADDLE_HEIGHT,
     speed: PADDLE_SPEED,
     movingLeft: false,
@@ -129,6 +218,8 @@ export default function App() {
 
   const gameStateRef = useRef(gameState);
   gameStateRef.current = gameState;
+  const stageRef = useRef(stage);
+  stageRef.current = stage;
   const retriesLeftRef = useRef(retriesLeft);
   retriesLeftRef.current = retriesLeft;
   const destroyedCountRef = useRef(destroyedCount);
@@ -141,12 +232,13 @@ export default function App() {
   const comboRef = useRef(combo);
   comboRef.current = combo;
 
-  // Touch tracking to distinguish tap from swipe
+  // Touch tracking: enhanced tolerance for tap recognition
   const touchStartPos = useRef<{ x: number; y: number; time: number } | null>(null);
-  const isSwiping = useRef(false);
+  const touchMaxMovement = useRef<number>(0);
 
-  // Initialize blocks: 横5 × 縦4 = 20 blocks
-  const createBlocks = useCallback((): Block[] => {
+  // Initialize blocks for a specific stage
+  const createBlocksForStage = useCallback((stageNum: number): Block[] => {
+    const stageConf = STAGES[stageNum - 1] || STAGES[0];
     const blocks: Block[] = [];
     const marginX = 60;
     const startY = 56;
@@ -162,7 +254,7 @@ export default function App() {
       for (let c = 0; c < COLS; c++) {
         const x = marginX + c * (blockWidth + gapX);
         const y = startY + r * (blockHeight + gapY);
-        const colorSet = ROW_COLORS[r];
+        const colorSet = stageConf.colors[r];
         blocks.push({
           id: id++,
           row: r,
@@ -208,31 +300,108 @@ export default function App() {
     ballRef.current.vy = 0;
   }, []);
 
-  // Launch the ball upwards
-  const launchBall = useCallback(() => {
-    const angleJitter = (Math.random() - 0.5) * 0.5;
-    const launchAngle = -Math.PI / 2 + angleJitter;
-    ballRef.current.vx = BALL_SPEED * Math.cos(launchAngle);
-    ballRef.current.vy = BALL_SPEED * Math.sin(launchAngle);
-    sound.playLaunch();
-    setGameState('playing');
+  // Prevent horizontal ball trajectory: guarantees vertical velocity is always at least 38% of total speed
+  const enforceMinimumVerticalSpeed = useCallback((speed: number) => {
+    const MIN_VERTICAL_RATIO = 0.38; // at least 22°+ vertical inclination
+    const minVy = speed * MIN_VERTICAL_RATIO;
+    if (Math.abs(ballRef.current.vy) < minVy) {
+      const signY = ballRef.current.vy < 0 ? -1 : 1;
+      ballRef.current.vy = signY * minVy;
+      const signX = ballRef.current.vx < 0 ? -1 : 1;
+      const vxSq = Math.max(0, speed * speed - ballRef.current.vy * ballRef.current.vy);
+      ballRef.current.vx = signX * Math.sqrt(vxSq);
+    }
   }, []);
 
-  // Reset game to fresh state
-  const handleResetGame = useCallback(() => {
-    blocksRef.current = createBlocks();
+  // Launch the ball upwards with stage-appropriate speed
+  const launchBall = useCallback(() => {
+    const stageConf = STAGES[stageRef.current - 1] || STAGES[0];
+    const speed = stageConf.ballSpeed;
+    const angleJitter = (Math.random() - 0.5) * 0.4; // roughly ±12 degrees from vertical
+    const launchAngle = -Math.PI / 2 + angleJitter;
+    ballRef.current.vx = speed * Math.cos(launchAngle);
+    ballRef.current.vy = speed * Math.sin(launchAngle);
+    enforceMinimumVerticalSpeed(speed);
+    sound.playLaunch();
+    setGameState('playing');
+  }, [enforceMinimumVerticalSpeed]);
+
+  // Advance to next stage (1面 -> 2面 -> 3面 -> 4面)
+  const handleAdvanceToNextStage = useCallback(() => {
+    const nextStage = stageRef.current + 1;
+    if (nextStage > TOTAL_STAGES) return;
+
+    setStage(nextStage);
+    stageRef.current = nextStage;
+    const stageConf = STAGES[nextStage - 1];
+
+    // Update paddle width according to new stage specifications
+    paddleRef.current.width = stageConf.paddleWidth;
+    paddleRef.current.x = Math.max(12, Math.min(CANVAS_WIDTH - 12 - stageConf.paddleWidth, (CANVAS_WIDTH - stageConf.paddleWidth) / 2));
+
+    // Refresh blocks for new stage
+    blocksRef.current = createBlocksForStage(nextStage);
     particlesRef.current = [];
     floatingScoresRef.current = [];
     setDestroyedCount(0);
+    destroyedCountRef.current = 0;
+    
+    // Give fresh retries for new stage
     setRetriesLeft(MAX_RETRIES);
+    retriesLeftRef.current = MAX_RETRIES;
+    comboRef.current = 0;
+    setCombo(0);
+
+    resetBallOnPaddle();
+    setGameState('ready');
+  }, [createBlocksForStage, resetBallOnPaddle]);
+
+  // Restart game completely from Stage 1
+  const handleRestartFromStage1 = useCallback(() => {
+    setStage(1);
+    stageRef.current = 1;
+    const stageConf = STAGES[0];
+
+    paddleRef.current.width = stageConf.paddleWidth;
+    paddleRef.current.x = (CANVAS_WIDTH - stageConf.paddleWidth) / 2;
+
+    blocksRef.current = createBlocksForStage(1);
+    particlesRef.current = [];
+    floatingScoresRef.current = [];
+    setDestroyedCount(0);
+    destroyedCountRef.current = 0;
+    setRetriesLeft(MAX_RETRIES);
+    retriesLeftRef.current = MAX_RETRIES;
     setScore(0);
     scoreRef.current = 0;
     setCombo(0);
     comboRef.current = 0;
-    paddleRef.current.x = (CANVAS_WIDTH - PADDLE_WIDTH) / 2;
+
     resetBallOnPaddle();
     setGameState('ready');
-  }, [createBlocks, resetBallOnPaddle]);
+  }, [createBlocksForStage, resetBallOnPaddle]);
+
+  // Retry current stage on game over
+  const handleRetryCurrentStage = useCallback(() => {
+    const curStage = stageRef.current;
+    const stageConf = STAGES[curStage - 1];
+
+    paddleRef.current.width = stageConf.paddleWidth;
+    paddleRef.current.x = (CANVAS_WIDTH - stageConf.paddleWidth) / 2;
+
+    blocksRef.current = createBlocksForStage(curStage);
+    particlesRef.current = [];
+    floatingScoresRef.current = [];
+    setDestroyedCount(0);
+    destroyedCountRef.current = 0;
+    setRetriesLeft(MAX_RETRIES);
+    retriesLeftRef.current = MAX_RETRIES;
+    comboRef.current = 0;
+    setCombo(0);
+
+    resetBallOnPaddle();
+    setGameState('ready');
+  }, [createBlocksForStage, resetBallOnPaddle]);
 
   // Combined Start & Pause Toggle
   const handleStartPauseToggle = useCallback(() => {
@@ -243,12 +412,13 @@ export default function App() {
       setGameState('paused');
     } else if (current === 'paused') {
       setGameState('playing');
-    } else if (current === 'cleared' || current === 'gameover') {
-      // Start a new game
-      handleResetGame();
+    } else if (current === 'stage_cleared') {
+      handleAdvanceToNextStage();
+    } else if (current === 'all_cleared' || current === 'gameover') {
+      handleRestartFromStage1();
       launchBall();
     }
-  }, [launchBall, handleResetGame]);
+  }, [launchBall, handleAdvanceToNextStage, handleRestartFromStage1]);
 
   // Toggle sound mute
   const handleToggleMute = () => {
@@ -256,11 +426,11 @@ export default function App() {
     setIsMuted(nextMuted);
   };
 
-  // Setup initial blocks on mount
+  // Setup initial stage 1 blocks on mount
   useEffect(() => {
-    blocksRef.current = createBlocks();
+    blocksRef.current = createBlocksForStage(1);
     resetBallOnPaddle();
-  }, [createBlocks, resetBallOnPaddle]);
+  }, [createBlocksForStage, resetBallOnPaddle]);
 
   // Keyboard controls
   useEffect(() => {
@@ -313,6 +483,8 @@ export default function App() {
       const paddle = paddleRef.current;
       const ball = ballRef.current;
       const currentState = gameStateRef.current;
+      const stageConf = STAGES[stageRef.current - 1] || STAGES[0];
+      const speed = stageConf.ballSpeed;
 
       // 1. Paddle movement
       if (paddle.movingLeft) {
@@ -334,7 +506,8 @@ export default function App() {
 
       // 2. Ball physics & collisions
       if (currentState === 'playing') {
-        const steps = 2;
+        // High-speed ball uses 3 sub-steps for smooth precision collision
+        const steps = speed > 10 ? 3 : 2;
         const subDt = dt / steps;
 
         for (let step = 0; step < steps; step++) {
@@ -345,12 +518,14 @@ export default function App() {
           if (ball.x - ball.radius <= 12) {
             ball.x = 12 + ball.radius;
             ball.vx = Math.abs(ball.vx);
+            enforceMinimumVerticalSpeed(speed);
             sound.playWallHit();
           }
           // Wall collision: Right wall
           else if (ball.x + ball.radius >= CANVAS_WIDTH - 12) {
             ball.x = CANVAS_WIDTH - 12 - ball.radius;
             ball.vx = -Math.abs(ball.vx);
+            enforceMinimumVerticalSpeed(speed);
             sound.playWallHit();
           }
 
@@ -358,6 +533,7 @@ export default function App() {
           if (ball.y - ball.radius <= 12) {
             ball.y = 12 + ball.radius;
             ball.vy = Math.abs(ball.vy);
+            enforceMinimumVerticalSpeed(speed);
             sound.playWallHit();
           }
 
@@ -376,10 +552,12 @@ export default function App() {
           ) {
             ball.y = paddleTop - ball.radius;
             const hitRatio = (ball.x - (paddle.x + paddle.width / 2)) / (paddle.width / 2);
-            const clampedRatio = Math.max(-0.9, Math.min(0.9, hitRatio));
-            const bounceAngle = -Math.PI / 2 + clampedRatio * (Math.PI / 3);
-            ball.vx = BALL_SPEED * Math.cos(bounceAngle);
-            ball.vy = BALL_SPEED * Math.sin(bounceAngle);
+            // Limit ratio to ±0.8 to strictly avoid flat horizontal paddle reflections
+            const clampedRatio = Math.max(-0.8, Math.min(0.8, hitRatio));
+            const bounceAngle = -Math.PI / 2 + clampedRatio * (Math.PI / 3.8); // max deflection ~±47°
+            ball.vx = speed * Math.cos(bounceAngle);
+            ball.vy = speed * Math.sin(bounceAngle);
+            enforceMinimumVerticalSpeed(speed);
             sound.playPaddleHit();
 
             // When the paddle bounces the ball back, combo resets
@@ -413,9 +591,7 @@ export default function App() {
               destroyedCountRef.current = nextDestroyedCount;
               setDestroyedCount(nextDestroyedCount);
 
-              // REQUIREMENT:
-              // "ブロックを壊した際にコンボ数に応じて得点が加算される。
-              //  ２つ目のブロックは２倍、３つ目のブロックは３倍、という具合に得点をつける。"
+              // Combo and score calculation
               const newCombo = comboRef.current + 1;
               comboRef.current = newCombo;
               setCombo(newCombo);
@@ -449,37 +625,58 @@ export default function App() {
               spawnParticles(b.x, b.y, b.width, b.height, b.color);
               sound.playBlockHit(newCombo);
 
-              // 4-direction collision rebound
+              // REQUIREMENT: 玉が水平に移動するのを防ぐ
+              // Rebound in 4 directions while enforcing healthy vertical component
               if (overlapY < overlapX) {
                 if (diffY < 0) {
                   // Hit top of block (e.g. from ceiling): bounce upwards
                   ball.y = b.y - ball.radius - 1;
-                  const randomUpwardAngle = -(Math.random() * 110 + 35) * (Math.PI / 180);
-                  ball.vx = BALL_SPEED * Math.cos(randomUpwardAngle);
-                  ball.vy = BALL_SPEED * Math.sin(randomUpwardAngle);
+                  // Random upward angle between -45° and -135° (avoids horizontal near -0° or -180°)
+                  const randomUpwardAngle = -(Math.random() * 90 + 45) * (Math.PI / 180);
+                  ball.vx = speed * Math.cos(randomUpwardAngle);
+                  ball.vy = speed * Math.sin(randomUpwardAngle);
                 } else {
                   // Hit bottom of block (from paddle): bounce downwards
                   ball.y = b.y + b.height + ball.radius + 1;
-                  const randomDownwardAngle = (Math.random() * 110 + 35) * (Math.PI / 180);
-                  ball.vx = BALL_SPEED * Math.cos(randomDownwardAngle);
-                  ball.vy = BALL_SPEED * Math.sin(randomDownwardAngle);
+                  // Random downward angle between 45° and 135°
+                  const randomDownwardAngle = (Math.random() * 90 + 45) * (Math.PI / 180);
+                  ball.vx = speed * Math.cos(randomDownwardAngle);
+                  ball.vy = speed * Math.sin(randomDownwardAngle);
                 }
               } else {
+                // Hit side of block: deflect away horizontally, but guarantee strong vertical angle!
+                const upOrDown = Math.random() < 0.5 ? -1 : 1;
                 if (diffX < 0) {
                   ball.x = b.x - ball.radius - 1;
-                  const randomLeftAngle = (Math.random() * 110 + 125) * (Math.PI / 180);
-                  ball.vx = BALL_SPEED * Math.cos(randomLeftAngle);
-                  ball.vy = BALL_SPEED * Math.sin(randomLeftAngle);
+                  // Deflect leftward with steep vertical angle (around 135° or 225°)
+                  const angleDeg = (upOrDown < 0 ? -135 : 135) + (Math.random() - 0.5) * 30;
+                  const rad = (angleDeg * Math.PI) / 180;
+                  ball.vx = speed * Math.cos(rad);
+                  ball.vy = speed * Math.sin(rad);
                 } else {
                   ball.x = b.x + b.width + ball.radius + 1;
-                  const randomRightAngle = ((Math.random() * 110 - 55) * Math.PI) / 180;
-                  ball.vx = BALL_SPEED * Math.cos(randomRightAngle);
-                  ball.vy = BALL_SPEED * Math.sin(randomRightAngle);
+                  // Deflect rightward with steep vertical angle (around 45° or -45°)
+                  const angleDeg = (upOrDown < 0 ? -45 : 45) + (Math.random() - 0.5) * 30;
+                  const rad = (angleDeg * Math.PI) / 180;
+                  ball.vx = speed * Math.cos(rad);
+                  ball.vy = speed * Math.sin(rad);
                 }
               }
 
+              // Double guarantee against near-horizontal drift
+              enforceMinimumVerticalSpeed(speed);
+
+              // STAGE CLEAR CHECK:
+              // 1面クリア -> 2面へ
+              // 2面クリア -> 3面へ
+              // 3面クリア -> 4面（最終面）へ
+              // 4面クリア -> 完全クリア！
               if (nextDestroyedCount >= TOTAL_BLOCKS) {
-                setGameState('cleared');
+                if (stageRef.current < TOTAL_STAGES) {
+                  setGameState('stage_cleared');
+                } else {
+                  setGameState('all_cleared');
+                }
                 sound.playClear();
                 break;
               }
@@ -550,7 +747,7 @@ export default function App() {
         cancelAnimationFrame(animationFrameId.current);
       }
     };
-  }, [resetBallOnPaddle]);
+  }, [resetBallOnPaddle, enforceMinimumVerticalSpeed]);
 
   // Drawing routine
   const renderScene = (ctx: CanvasRenderingContext2D) => {
@@ -584,6 +781,13 @@ export default function App() {
     ctx.strokeStyle = 'rgba(56, 189, 248, 0.2)';
     ctx.lineWidth = 2;
     ctx.strokeRect(10, 10, CANVAS_WIDTH - 20, CANVAS_HEIGHT - 20);
+
+    // Stage indicator in canvas top-left corner
+    ctx.save();
+    ctx.font = 'bold 13px "Segoe UI", sans-serif';
+    ctx.fillStyle = 'rgba(148, 163, 184, 0.6)';
+    ctx.fillText(`STAGE ${currentStageConfig.stage} / ${TOTAL_STAGES}`, 24, 32);
+    ctx.restore();
 
     // Draw blocks (横5 × 縦4)
     const blocks = blocksRef.current;
@@ -627,7 +831,7 @@ export default function App() {
       ctx.restore();
     });
 
-    // Draw floating score popups (REQUIREMENT: キャンバス上のポップアップ演出の文字をブロックと同じくらいに大きくする)
+    // Draw floating score popups (enlarged to match 32px block height)
     floatingScoresRef.current.forEach((fs) => {
       ctx.save();
       ctx.globalAlpha = Math.max(0, fs.alpha);
@@ -635,7 +839,6 @@ export default function App() {
       ctx.textBaseline = 'middle';
 
       if (fs.combo > 1) {
-        // Combo label
         ctx.font = '900 16px "Segoe UI", sans-serif';
         ctx.lineWidth = 4;
         ctx.strokeStyle = 'rgba(0, 0, 0, 0.9)';
@@ -646,7 +849,6 @@ export default function App() {
         ctx.fillText(`${fs.combo}x COMBO!`, fs.x, fs.y - 18);
       }
 
-      // Main score number: 30px font matches the 32px block height!
       ctx.font = '900 30px "Segoe UI", sans-serif';
       ctx.lineWidth = 5;
       ctx.strokeStyle = 'rgba(0, 0, 0, 0.95)';
@@ -706,7 +908,7 @@ export default function App() {
     // Top reflective strip
     ctx.fillStyle = '#ffffff';
     ctx.beginPath();
-    ctx.roundRect(paddle.x + 6, paddle.y + 2, paddle.width - 12, 3.5, 2);
+    ctx.roundRect(paddle.x + 4, paddle.y + 2, paddle.width - 8, 3.5, 2);
     ctx.fill();
 
     // Center target pip
@@ -755,7 +957,12 @@ export default function App() {
       ctx.font = 'bold 15px "Segoe UI", sans-serif';
       ctx.fillStyle = '#94a3b8';
       ctx.textAlign = 'center';
-      ctx.fillText('画面をタップ または「スタート」で玉を発射！', CANVAS_WIDTH / 2, CANVAS_HEIGHT - 120);
+      ctx.fillText(`【${currentStageConfig.name}】画面をタップ または「スタート」で玉を発射！`, CANVAS_WIDTH / 2, CANVAS_HEIGHT - 120);
+
+      // Display stage modifiers
+      ctx.font = 'bold 13px "Segoe UI", sans-serif';
+      ctx.fillStyle = '#38bdf8';
+      ctx.fillText(currentStageConfig.modifierText, CANVAS_WIDTH / 2, CANVAS_HEIGHT - 98);
       ctx.restore();
     }
 
@@ -793,7 +1000,8 @@ export default function App() {
     paddle.x = Math.max(12, Math.min(CANVAS_WIDTH - 12 - paddle.width, canvasX - paddle.width / 2));
   }, []);
 
-  // Touch handlers on canvas
+  // REQUIREMENT: タップの判定が厳しすぎる。もう少し長い時間のタップも許してほしい。
+  // Touch handlers with relaxed timing (< 750ms) and distance threshold (< 25px)
   const handleTouchStart = (e: React.TouchEvent<HTMLCanvasElement>) => {
     const touch = e.touches[0];
     touchStartPos.current = {
@@ -801,7 +1009,7 @@ export default function App() {
       y: touch.clientY,
       time: performance.now(),
     };
-    isSwiping.current = false;
+    touchMaxMovement.current = 0;
     updatePaddleFromClientX(touch.clientX);
   };
 
@@ -809,8 +1017,8 @@ export default function App() {
     const touch = e.touches[0];
     if (touchStartPos.current) {
       const dist = Math.hypot(touch.clientX - touchStartPos.current.x, touch.clientY - touchStartPos.current.y);
-      if (dist > 8) {
-        isSwiping.current = true;
+      if (dist > touchMaxMovement.current) {
+        touchMaxMovement.current = dist;
       }
     }
     updatePaddleFromClientX(touch.clientX);
@@ -819,12 +1027,21 @@ export default function App() {
   const handleTouchEnd = () => {
     if (touchStartPos.current) {
       const elapsed = performance.now() - touchStartPos.current.time;
-      if (!isSwiping.current && elapsed < 350) {
+      const maxMove = touchMaxMovement.current;
+      const curState = gameStateRef.current;
+
+      // In non-playing states (ready, cleared, gameover), ANY touch/tap activates the next action!
+      if (curState === 'ready' || curState === 'stage_cleared' || curState === 'all_cleared' || curState === 'gameover') {
         handleStartPauseToggle();
+      } else if (curState === 'playing' || curState === 'paused') {
+        // While in play, generous tap recognition: up to 750ms duration and up to 25px finger wobble allowed
+        if (elapsed < 750 && maxMove < 25) {
+          handleStartPauseToggle();
+        }
       }
     }
     touchStartPos.current = null;
-    isSwiping.current = false;
+    touchMaxMovement.current = 0;
   };
 
   // Desktop click on canvas
@@ -836,7 +1053,7 @@ export default function App() {
   const getStartPauseButtonConfig = () => {
     if (gameState === 'ready') {
       return {
-        label: 'スタート',
+        label: `${currentStageConfig.name} スタート`,
         icon: <Play className="w-5 h-5 fill-current" />,
         style: 'bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white shadow-emerald-500/25 ring-1 ring-emerald-400/50',
       };
@@ -855,9 +1072,16 @@ export default function App() {
         style: 'bg-amber-500 hover:bg-amber-400 text-slate-950 font-black shadow-lg shadow-amber-500/20',
       };
     }
-    // cleared or gameover
+    if (gameState === 'stage_cleared') {
+      return {
+        label: '次の面へ進む',
+        icon: <ChevronRight className="w-5 h-5" />,
+        style: 'bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white shadow-cyan-500/25 ring-1 ring-cyan-400/50',
+      };
+    }
+    // all_cleared or gameover
     return {
-      label: 'スタート',
+      label: '最初からスタート',
       icon: <RotateCcw className="w-5 h-5" />,
       style: 'bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white shadow-emerald-500/25 ring-1 ring-emerald-400/50',
     };
@@ -874,10 +1098,21 @@ export default function App() {
             <Sparkles className="w-5 h-5 text-white" />
           </div>
           <div>
-            <h1 className="text-xl sm:text-2xl font-black tracking-tight bg-gradient-to-r from-white via-cyan-200 to-cyan-400 bg-clip-text text-transparent">
-              ブロック崩し
-            </h1>
-            <p className="text-xs text-slate-400 hidden sm:block">横５×縦４ クラシック・アーケード</p>
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl sm:text-2xl font-black tracking-tight bg-gradient-to-r from-white via-cyan-200 to-cyan-400 bg-clip-text text-transparent">
+                ブロック崩し
+              </h1>
+              <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold border ${
+                currentStageConfig.isFinal 
+                  ? 'bg-rose-950/70 border-rose-600 text-rose-300 animate-pulse'
+                  : 'bg-cyan-950/70 border-cyan-700/80 text-cyan-300'
+              }`}>
+                {currentStageConfig.name}
+              </span>
+            </div>
+            <p className="text-xs text-slate-400 hidden sm:block">
+              {currentStageConfig.description}
+            </p>
           </div>
         </div>
 
@@ -894,7 +1129,7 @@ export default function App() {
           <button
             onClick={() => setShowHelp(!showHelp)}
             className="p-2 rounded-lg bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-300 transition-colors cursor-pointer"
-            title="遊び方・ルール"
+            title="遊び方・ステージ仕様"
             aria-label="Help"
           >
             <HelpCircle className="w-5 h-5" />
@@ -918,61 +1153,99 @@ export default function App() {
               className="w-full h-full block cursor-pointer"
             />
 
-            {/* Game Clear Overlay Modal */}
-            {gameState === 'cleared' && (
+            {/* Stage Clear Modal (Stages 1, 2, 3) */}
+            {gameState === 'stage_cleared' && (
               <div className="absolute inset-0 z-30 bg-slate-950/85 backdrop-blur-md flex flex-col items-center justify-center p-6 animate-in fade-in zoom-in duration-200">
-                <div className="w-16 h-16 rounded-full bg-emerald-500/20 border-2 border-emerald-400 flex items-center justify-center mb-4 text-emerald-400 shadow-lg shadow-emerald-500/30">
-                  <Trophy className="w-8 h-8" />
+                <div className="w-16 h-16 rounded-full bg-cyan-500/20 border-2 border-cyan-400 flex items-center justify-center mb-3 text-cyan-400 shadow-lg shadow-cyan-500/30">
+                  <FastForward className="w-8 h-8" />
                 </div>
-                <h2 className="text-3xl sm:text-4xl font-black text-emerald-400 mb-1 tracking-tight">
-                  ゲームクリア！
+                <h2 className="text-3xl sm:text-4xl font-black text-cyan-400 mb-1 tracking-tight">
+                  {currentStageConfig.name} クリア！
                 </h2>
-                <p className="text-slate-300 text-sm sm:text-base mb-5 text-center max-w-sm">
-                  お見事！すべてのブロック（20個）を見事に破壊しました！
+                <p className="text-slate-300 text-sm sm:text-base mb-4 text-center max-w-sm">
+                  全20個のブロックを破壊しました！
                 </p>
 
-                <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-6 w-72 text-center space-y-2">
+                {/* Next stage challenge preview */}
+                <div className="bg-slate-900 border border-slate-700/80 rounded-xl p-4 mb-5 w-80 text-center space-y-2.5">
+                  <div className="text-xs text-slate-400 font-semibold">現在の獲得スコア</div>
+                  <div className="text-2xl font-black text-amber-400 font-mono">
+                    {score.toLocaleString()} 点
+                  </div>
+                  
+                  <div className="p-2.5 rounded-lg bg-cyan-950/50 border border-cyan-800/60 text-xs text-cyan-200 font-bold">
+                    <span className="block text-[11px] text-cyan-400 mb-0.5">次ステージの予告</span>
+                    {stage === 1 && '▶ 2面：パドルの幅が【3分の2（88px）】になります！'}
+                    {stage === 2 && '▶ 3面：球の速度が【1.5倍】に速くなります！'}
+                    {stage === 3 && '▶ 4面（最終面）：パドルの幅が【半分（66px）】になります！'}
+                  </div>
+                </div>
+
+                <button
+                  onClick={handleAdvanceToNextStage}
+                  className="flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold text-base shadow-lg shadow-cyan-500/30 active:scale-95 transition-all cursor-pointer"
+                >
+                  <span>次の面（{stage + 1}面）へ進む</span>
+                  <ChevronRight className="w-5 h-5" />
+                </button>
+              </div>
+            )}
+
+            {/* All Stages Cleared Modal (Grand Victory after Stage 4) */}
+            {gameState === 'all_cleared' && (
+              <div className="absolute inset-0 z-30 bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-center p-6 animate-in fade-in zoom-in duration-200">
+                <div className="w-16 h-16 rounded-full bg-amber-500/20 border-2 border-amber-400 flex items-center justify-center mb-3 text-amber-400 shadow-lg shadow-amber-500/30 animate-bounce">
+                  <Trophy className="w-9 h-9" />
+                </div>
+                <h2 className="text-3xl sm:text-4xl font-black bg-gradient-to-r from-amber-300 via-yellow-200 to-orange-400 bg-clip-text text-transparent mb-1 tracking-tight text-center">
+                  全ステージ完全制覇！
+                </h2>
+                <p className="text-slate-300 text-sm sm:text-base mb-4 text-center max-w-sm">
+                  お見事！最終面（4面）までの全80ブロックを全て撃破しました！
+                </p>
+
+                <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-5 w-76 text-center space-y-2">
                   <div>
-                    <div className="text-xs text-slate-400 font-semibold">獲得スコア</div>
+                    <div className="text-xs text-slate-400 font-semibold">最終合計スコア</div>
                     <div className="text-3xl font-black text-amber-400 font-mono">
                       {score.toLocaleString()} 点
                     </div>
                     {score >= highScore && score > 0 && (
                       <div className="text-xs text-amber-300 font-bold mt-0.5">
-                        🎉 ハイスコア達成！
+                        🎉 新ハイスコア達成！
                       </div>
                     )}
                   </div>
                   <div className="border-t border-slate-800 pt-2 flex items-center justify-around text-xs text-slate-300">
-                    <span>壊したブロック: <strong className="text-cyan-400 font-bold">{destroyedCount}個</strong></span>
-                    <span>残り: <strong className="text-emerald-400 font-bold">{retriesLeft}回</strong></span>
+                    <span>クリアステージ: <strong className="text-cyan-400 font-bold">全4面</strong></span>
+                    <span>ハイスコア: <strong className="text-yellow-400 font-bold">{highScore.toLocaleString()}</strong></span>
                   </div>
                 </div>
 
                 <button
-                  onClick={handleResetGame}
+                  onClick={handleRestartFromStage1}
                   className="flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white font-bold text-base shadow-lg shadow-emerald-500/30 active:scale-95 transition-all cursor-pointer"
                 >
                   <RotateCcw className="w-5 h-5" />
-                  <span>もう一度遊ぶ</span>
+                  <span>最初からもう一度遊ぶ</span>
                 </button>
               </div>
             )}
 
-            {/* Game Over Overlay Modal */}
+            {/* Game Over Modal */}
             {gameState === 'gameover' && (
               <div className="absolute inset-0 z-30 bg-slate-950/85 backdrop-blur-md flex flex-col items-center justify-center p-6 animate-in fade-in zoom-in duration-200">
-                <div className="w-16 h-16 rounded-full bg-rose-500/20 border-2 border-rose-500 flex items-center justify-center mb-4 text-rose-400 shadow-lg shadow-rose-500/30">
+                <div className="w-16 h-16 rounded-full bg-rose-500/20 border-2 border-rose-500 flex items-center justify-center mb-3 text-rose-400 shadow-lg shadow-rose-500/30">
                   <span className="text-3xl font-black">✕</span>
                 </div>
                 <h2 className="text-3xl sm:text-4xl font-black text-rose-400 mb-1 tracking-tight">
                   ゲームオーバー
                 </h2>
-                <p className="text-slate-300 text-sm sm:text-base mb-5 text-center max-w-sm">
-                  発射し直し2回目のゲーム中に玉が通り過ぎました。
+                <p className="text-slate-300 text-sm sm:text-base mb-4 text-center max-w-sm">
+                  {currentStageConfig.name}で玉が通り過ぎました。
                 </p>
 
-                <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-6 w-72 text-center space-y-2">
+                <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-5 w-76 text-center space-y-2">
                   <div>
                     <div className="text-xs text-slate-400 font-semibold">最終スコア</div>
                     <div className="text-3xl font-black text-amber-400 font-mono">
@@ -980,18 +1253,26 @@ export default function App() {
                     </div>
                   </div>
                   <div className="border-t border-slate-800 pt-2 flex items-center justify-around text-xs text-slate-300">
-                    <span>壊したブロック: <strong className="text-cyan-400 font-bold">{destroyedCount} / {TOTAL_BLOCKS}</strong></span>
+                    <span>到達ステージ: <strong className="text-rose-400 font-bold">{currentStageConfig.name}</strong></span>
                     <span>ハイスコア: <strong className="text-yellow-400 font-bold">{highScore.toLocaleString()}</strong></span>
                   </div>
                 </div>
 
-                <button
-                  onClick={handleResetGame}
-                  className="flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-rose-500 to-pink-600 hover:from-rose-400 hover:to-pink-500 text-white font-bold text-base shadow-lg shadow-rose-500/30 active:scale-95 transition-all cursor-pointer"
-                >
-                  <RotateCcw className="w-5 h-5" />
-                  <span>リトライする</span>
-                </button>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={handleRetryCurrentStage}
+                    className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-sm border border-slate-700 shadow active:scale-95 transition-all cursor-pointer"
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                    <span>この面を再挑戦</span>
+                  </button>
+                  <button
+                    onClick={handleRestartFromStage1}
+                    className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-gradient-to-r from-rose-500 to-pink-600 hover:from-rose-400 hover:to-pink-500 text-white font-bold text-sm shadow-lg shadow-rose-500/30 active:scale-95 transition-all cursor-pointer"
+                  >
+                    <span>1面からやり直す</span>
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -1010,15 +1291,29 @@ export default function App() {
           </div>
         </div>
 
-        {/* 
-          Right Side Panel:
-          1. 棒の操作枠（左右操作キー）
-          2. スタートボタンがある枠（スタート／一時停止ボタン, 壊したブロックの数, 発射し直し残り）
-          3. ゲームスコアを表示する枠（現在のスコア, ハイスコア, コンボ数）
-             ※ スタートボタンがある枠の下に配置
-        */}
+        {/* Right Side Panel */}
         <aside className="w-full lg:w-64 flex flex-col gap-3 shrink-0">
-          {/* 1. 棒の操作枠 */}
+          {/* Current Stage Card */}
+          <div className="p-3 rounded-2xl bg-slate-900/90 border border-slate-800 shadow-xl flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-ping" />
+              <div>
+                <span className="font-black text-sm text-cyan-200 block">
+                  ステージ: {currentStageConfig.name}
+                </span>
+                <span className="text-[11px] text-slate-400 block">
+                  {currentStageConfig.badge}
+                </span>
+              </div>
+            </div>
+            <div className="text-right">
+              <span className="text-xs font-mono text-slate-400">
+                {stage} / {TOTAL_STAGES}
+              </span>
+            </div>
+          </div>
+
+          {/* 1. 棒の操作枠（左右ボタン） */}
           <div className="p-3 rounded-2xl bg-slate-900/90 border border-slate-800 shadow-xl flex items-center gap-2">
             <button
               onMouseDown={() => { paddleRef.current.movingLeft = true; }}
@@ -1078,12 +1373,7 @@ export default function App() {
             </div>
           </div>
 
-          {/* 
-            3. ゲームスコアを表示する枠（スタートボタンがある枠の下に配置）
-            - 現在のスコア
-            - ハイスコア
-            - コンボ倍率表示
-          */}
+          {/* 3. ゲームスコアを表示する枠 */}
           <div className="p-4 rounded-2xl bg-slate-900/90 border border-slate-800 shadow-xl flex flex-col gap-3">
             {/* 現在のスコア */}
             <div className="w-full h-12 px-4 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between text-base font-bold text-slate-200 shadow-inner">
@@ -1107,7 +1397,7 @@ export default function App() {
               </span>
             </div>
 
-            {/* コンボ数・倍率インジケーター（連続ヒット時に表示） */}
+            {/* コンボ数・倍率インジケーター */}
             {combo > 1 && (
               <div className="w-full py-2 px-3.5 rounded-xl bg-gradient-to-r from-amber-500/15 via-orange-500/20 to-amber-500/15 border border-amber-500/40 flex items-center justify-between text-xs font-bold text-amber-300 animate-pulse">
                 <span className="flex items-center gap-1">
@@ -1122,10 +1412,10 @@ export default function App() {
           </div>
         </aside>
 
-        {/* Rules & Help Modal */}
+        {/* Rules & Stage Info Modal */}
         {showHelp && (
           <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-6 shadow-2xl relative">
+            <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-lg w-full p-6 shadow-2xl relative max-h-[90vh] overflow-y-auto">
               <button
                 onClick={() => setShowHelp(false)}
                 className="absolute top-4 right-4 text-slate-400 hover:text-white text-xl font-bold p-1 cursor-pointer"
@@ -1136,39 +1426,44 @@ export default function App() {
 
               <h3 className="text-xl font-black text-cyan-400 mb-3 flex items-center gap-2">
                 <HelpCircle className="w-5 h-5" />
-                ゲームのルールと仕様
+                全4ステージの仕様とルール
               </h3>
 
-              <ul className="text-sm text-slate-300 space-y-2.5 list-disc list-inside">
+              {/* Stage breakdown */}
+              <div className="space-y-2 mb-4">
+                <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs">
+                  <span className="font-bold text-cyan-300 block mb-0.5">【1面】基本ステージ</span>
+                  <span className="text-slate-400">パドル幅 132px (通常) / 球速 通常 (7.5)</span>
+                </div>
+                <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs">
+                  <span className="font-bold text-purple-300 block mb-0.5">【2面】パドル縮小</span>
+                  <span className="text-slate-400">パドル幅が3分の2（88px）に縮小！慎重に玉を捉えよう。</span>
+                </div>
+                <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs">
+                  <span className="font-bold text-amber-300 block mb-0.5">【3面】スピードアップ</span>
+                  <span className="text-slate-400">パドル幅 2/3 のまま、球の速度が1.5倍に超加速！</span>
+                </div>
+                <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs">
+                  <span className="font-bold text-rose-300 block mb-0.5">【4面・最終面】極限の挑戦</span>
+                  <span className="text-slate-400">パドルの幅が半分（66px）＆ 球速1.5倍！完全制覇を目指そう！</span>
+                </div>
+              </div>
+
+              <ul className="text-xs text-slate-300 space-y-2 list-disc list-inside border-t border-slate-850 pt-3">
                 <li>
-                  <strong className="text-slate-100">ブロック:</strong> 横５×縦４（計20個）。少し横長のブロックで、玉が当たると壊れます。
+                  <strong className="text-slate-100">水平移動の防止:</strong> 玉が真横に移動し続けてスタックしないよう、反射時に適度な縦方向の推進力が常時維持されます。
                 </li>
                 <li>
-                  <strong className="text-slate-100">スコア＆コンボシステム:</strong> 1個目は100点、連続で壊すと2個目は2倍（200点）、3個目は3倍（300点）…とコンボ倍率が上昇します！（棒で打ち返すとリセット）
+                  <strong className="text-slate-100">タップ判定:</strong> 長めのタップでも確実に反応するようタップ判定時間を大幅に緩和（約0.75秒までタップ受付）しています。
                 </li>
                 <li>
-                  <strong className="text-slate-100">スタートと一時停止:</strong> 画面をタップするか、「スタート／一時停止」ボタンを押すことで発射と一時停止の切り替えができます。
-                </li>
-                <li>
-                  <strong className="text-slate-100">棒の操作:</strong> 左右の操作ボタン、画面下部のスワイプバー、またはキーボードの<span className="text-cyan-300 font-bold">左キー／右キー</span>で快適に棒を動かせます。
-                </li>
-                <li>
-                  <strong className="text-slate-100">ランダム跳ね返り:</strong> ブロックに当たると、跳ね返る方向がランダムに変化します。
-                </li>
-                <li>
-                  <strong className="text-slate-100">壁と天井の跳ね返り:</strong> 玉は左右の壁と天井でも跳ね返り、天井から落ちてきた玉がブロックの上面に当たってもきちんと跳ね返ります。
-                </li>
-                <li>
-                  <strong className="text-slate-100">発射し直しとゲームオーバー:</strong> 玉が下に通り過ぎると、<span className="text-amber-300 font-bold">２回まで発射し直し</span>ができます。発射し直し２回目のプレイ中に玉が下に通り過ぎるとゲームオーバーになります。
-                </li>
-                <li>
-                  <strong className="text-slate-100">クリア条件:</strong> すべてのブロック（20個）を壊すとゲームクリアです！
+                  <strong className="text-slate-100">コンボシステム:</strong> 棒で打ち返すまで連続でブロックを壊すと得点が2倍、3倍と乗算されます。
                 </li>
               </ul>
 
               <button
                 onClick={() => setShowHelp(false)}
-                className="w-full mt-6 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded-xl transition-colors cursor-pointer"
+                className="w-full mt-5 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded-xl transition-colors cursor-pointer text-sm"
               >
                 了解して閉じる
               </button>
